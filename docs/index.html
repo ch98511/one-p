@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f172a" />
+  <title>Flock Camera Radar</title>
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="./icons/icon-192.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Cam Radar" />
+
+  <!-- Leaflet map (loaded from CDN; map is optional and degrades gracefully) -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="dot"></span>
+        <span>Flock Camera Radar</span>
+      </div>
+      <button id="settingsBtn" class="icon-btn" aria-label="Settings">⚙</button>
+    </header>
+
+    <!-- Big status / alert banner -->
+    <section id="statusCard" class="status status--idle" aria-live="polite">
+      <div class="status__distance"><span id="nearestDist">—</span></div>
+      <div class="status__label" id="statusLabel">Not monitoring</div>
+      <div class="status__sub" id="statusSub">Press Start to use your location and watch for cameras nearby.</div>
+    </section>
+
+    <div id="map" aria-label="Map of nearby cameras"></div>
+
+    <section class="stats">
+      <div class="stat"><div class="stat__num" id="camCount">0</div><div class="stat__cap">cameras nearby</div></div>
+      <div class="stat"><div class="stat__num" id="gpsAcc">—</div><div class="stat__cap">GPS ± m</div></div>
+      <div class="stat"><div class="stat__num" id="alertR">150</div><div class="stat__cap">alert @ m</div></div>
+    </section>
+
+    <ul id="camList" class="cam-list" aria-label="Nearby cameras list"></ul>
+
+    <div class="controls">
+      <button id="startBtn" class="btn btn--primary">▶ Start monitoring</button>
+      <button id="stopBtn" class="btn btn--ghost" hidden>■ Stop</button>
+      <button id="testBtn" class="btn btn--ghost">Test alert</button>
+    </div>
+
+    <p class="disclaimer">
+      Camera locations are crowd-sourced from <a href="https://www.openstreetmap.org" target="_blank" rel="noopener">OpenStreetMap</a>
+      (the DeFlock dataset) and may be incomplete or out of date. For privacy awareness only.
+      <strong>Don’t use while driving distracted.</strong>
+    </p>
+  </div>
+
+  <!-- Settings sheet -->
+  <div id="settingsSheet" class="sheet" hidden>
+    <div class="sheet__panel">
+      <h2>Settings</h2>
+
+      <label class="field">
+        <span>Alert distance: <b id="alertRLabel">150</b> m</span>
+        <input id="alertRRange" type="range" min="30" max="600" step="10" value="150" />
+      </label>
+
+      <label class="field">
+        <span>Search radius (how far to fetch cameras): <b id="fetchRLabel">3</b> km</span>
+        <input id="fetchRRange" type="range" min="1" max="15" step="1" value="3" />
+      </label>
+
+      <label class="field field--row">
+        <input id="flockOnly" type="checkbox" />
+        <span>Only cameras tagged as <b>Flock</b> (otherwise show all ALPR cameras)</span>
+      </label>
+
+      <label class="field field--row">
+        <input id="soundOn" type="checkbox" checked />
+        <span>Play a sound on alert</span>
+      </label>
+
+      <label class="field field--row">
+        <input id="vibrateOn" type="checkbox" checked />
+        <span>Vibrate on alert</span>
+      </label>
+
+      <label class="field field--row">
+        <input id="wakeOn" type="checkbox" checked />
+        <span>Keep screen awake while monitoring</span>
+      </label>
+
+      <button id="closeSettings" class="btn btn--primary">Done</button>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
