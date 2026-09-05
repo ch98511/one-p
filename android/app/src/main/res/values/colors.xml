@@ -1,0 +1,10 @@
+<resources>
+    <color name="bg">#0F172A</color>
+    <color name="panel">#1E293B</color>
+    <color name="panel2">#273449</color>
+    <color name="text">#E2E8F0</color>
+    <color name="muted">#94A3B8</color>
+    <color name="sky">#38BDF8</color>
+    <color name="ink">#04283A</color>
+    <color name="ic_launcher_background">#0F172A</color>
+</resources>

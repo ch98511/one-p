@@ -1,0 +1,10 @@
+<resources>
+    <style name="Theme.CamRadar" parent="Theme.MaterialComponents.NoActionBar">
+        <item name="android:windowBackground">@color/bg</item>
+        <item name="android:statusBarColor">@color/bg</item>
+        <item name="android:navigationBarColor">@color/bg</item>
+        <item name="colorPrimary">@color/sky</item>
+        <item name="colorAccent">@color/sky</item>
+        <item name="android:textColorPrimary">@color/text</item>
+    </style>
+</resources>
