@@ -69,7 +69,7 @@ class MonitorService : Service(), LocationListener {
     }
 
     private fun startMonitoring() {
-        startForeground(ONGOING_ID, buildOngoing("Monitoring…", "Waiting for GPS fix"))
+        enterForeground(ONGOING_ID, buildOngoing("Monitoring…", "Waiting for GPS fix"))
         acquireWake()
         snapshot = snapshot.copy(monitoring = true)
 
@@ -220,7 +220,7 @@ class MonitorService : Service(), LocationListener {
     }
 
     // ---- helpers ----
-    private fun startForeground(id: Int, n: Notification) {
+    private fun enterForeground(id: Int, n: Notification) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             ServiceCompat.startForeground(this, id, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
         } else {
