@@ -1,7 +1,7 @@
 {
   "name": "Flock Camera Radar",
   "short_name": "Cam Radar",
-  "description": "Alerts you when you approach an automated license-plate reader (ALPR / Flock) camera. Data from OpenStreetMap.",
+  "description": "Live map of ALPR/Flock cameras, public surveillance and weather radar, with proximity alerts and constraint-aware routing (avoid cameras, tolls, highways or areas). Data from OpenStreetMap, RainViewer and Valhalla.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

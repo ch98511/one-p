@@ -1,0 +1,7 @@
+# Local secrets & runtime state — never commit these.
+.env
+custom_files/
+pgdata/
+__pycache__/
+*.pyc
+.venv/

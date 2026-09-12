@@ -1,0 +1,21 @@
+{
+  "name": "flock-camera-radar",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Native (Capacitor) wrapper for the Flock Camera Radar PWA — installable app with background location for alerts + track recording.",
+  "scripts": {
+    "sync": "cap sync android",
+    "open:android": "cap open android",
+    "run:android": "cap run android",
+    "build:apk": "cd android && ./gradlew assembleDebug",
+    "install:apk": "cd android && ./gradlew installDebug"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.2.0",
+    "@capacitor/core": "^6.2.0",
+    "@capacitor-community/background-geolocation": "^1.2.24"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.2.0"
+  }
+}

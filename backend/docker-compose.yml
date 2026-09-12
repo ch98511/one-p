@@ -1,0 +1,74 @@
+# Flock routing infrastructure — "infra first".
+#
+#   valhalla  routing engine (builds a graph from an OSM extract)   :8002
+#   db        PostGIS: surveillance cameras + saved route filters   :5432
+#   proxy     Caddy — adds CORS/TLS + serves the PWA same-origin    :8080/:8443
+#             (optional; only starts with `--profile proxy`)
+#
+# Quick start:  cp .env.example .env  &&  docker compose up -d db valhalla
+# See README.md for the camera import and how to point the app here.
+
+name: flock-routing
+
+services:
+  valhalla:
+    image: ghcr.io/nilsnolde/docker-valhalla/valhalla:latest
+    container_name: flock-valhalla
+    ports:
+      - "${VALHALLA_PORT:-8002}:8002"
+    volumes:
+      - ./custom_files:/custom_files
+    environment:
+      # Download + build from this extract on first run, then reuse the tiles.
+      tile_urls: "${PBF_URL}"
+      use_tiles_ignore_pbf: "False"   # False = consider the PBF (needed to build)
+      force_rebuild: "False"          # set True to rebuild after a new PBF
+      build_admins: "True"            # border/country penalties
+      build_time_zones: "True"        # enables time-dependent routing later
+      build_elevation: "False"        # True adds bike/foot grade costing (slower build)
+      serve_tiles: "True"
+      server_threads: "${VALHALLA_THREADS:-2}"
+    restart: unless-stopped
+
+  db:
+    image: postgis/postgis:16-3.4
+    container_name: flock-postgis
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER:-flock}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-flock}"
+      POSTGRES_DB: "${POSTGRES_DB:-flock}"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro   # schema runs on first init
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-flock} -d ${POSTGRES_DB:-flock}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Optional. Valhalla sends no CORS headers, so a browser PWA on another origin
+  # cannot call it directly. Caddy fixes that: it serves the PWA and proxies the
+  # routing API on ONE origin (local dev), or terminates TLS + adds CORS for a
+  # real domain (production). Start it with:  docker compose --profile proxy up -d
+  proxy:
+    image: caddy:2
+    container_name: flock-proxy
+    profiles: ["proxy"]
+    depends_on: [valhalla]
+    ports:
+      - "${PROXY_HTTP_PORT:-8080}:80"
+      - "${PROXY_HTTPS_PORT:-8443}:443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ../docs:/srv/pwa:ro       # serves the PWA at the same origin as /route
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

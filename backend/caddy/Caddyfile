@@ -1,0 +1,43 @@
+# Caddy config for the Flock routing proxy.
+#
+# Valhalla emits no CORS headers, and a browser won't mix https (the PWA) with
+# http (a raw Valhalla). Caddy solves both. Two modes below — use one.
+
+# ============================================================
+# MODE A — LOCAL DEV (default). One origin at http://localhost:8080.
+# Serves the PWA AND proxies the routing API, so there's no CORS and no
+# mixed-content. In the app:  Settings → Routing engine → http://localhost:8080
+# ============================================================
+:80 {
+	# Valhalla HTTP API endpoints — proxied through, path preserved.
+	@valhalla path /route* /optimized_route* /sources_to_targets* /isochrone* /trace_route* /trace_attributes* /height* /locate* /status*
+	handle @valhalla {
+		reverse_proxy valhalla:8002
+	}
+
+	# Everything else: the static PWA (mounted from ../docs).
+	handle {
+		root * /srv/pwa
+		file_server
+	}
+}
+
+# ============================================================
+# MODE B — PRODUCTION. A real domain with automatic HTTPS (Let's Encrypt)
+# and CORS, so your GitHub Pages PWA (https) can call it. Point DNS at this
+# host, uncomment, set your domain + the PWA origin, and in the app set
+# Settings → Routing engine → https://routing.example.com
+# ------------------------------------------------------------
+# routing.example.com {
+# 	@cors_preflight method OPTIONS
+# 	handle @cors_preflight {
+# 		header Access-Control-Allow-Origin "https://YOURNAME.github.io"
+# 		header Access-Control-Allow-Methods "GET, POST, OPTIONS"
+# 		header Access-Control-Allow-Headers "Content-Type"
+# 		respond 204
+# 	}
+# 	header Access-Control-Allow-Origin "https://YOURNAME.github.io"
+# 	header Access-Control-Allow-Methods "GET, POST, OPTIONS"
+# 	header Access-Control-Allow-Headers "Content-Type"
+# 	reverse_proxy valhalla:8002
+# }

@@ -1,0 +1,11 @@
+# Node (Capacitor build tooling)
+node_modules/
+npm-debug.log*
+yarn-error.log
+
+# Android local machine config
+android/local.properties
+
+# OS junk
+.DS_Store
+Thumbs.db
