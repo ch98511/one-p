@@ -1,0 +1,6 @@
+{
+  "appId": "com.flockradar.app",
+  "appName": "Flock Camera Radar",
+  "webDir": "docs",
+  "server": { "androidScheme": "https" }
+}

@@ -9,6 +9,7 @@ const SHELL = [
   "./routing.js",
   "./layers.js",
   "./tracks.js",
+  "./native.js",
   "./vendor/zip.min.js",
   "./manifest.webmanifest",
   "./icons/icon-192.png",

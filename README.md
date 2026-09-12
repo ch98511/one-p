@@ -59,6 +59,21 @@ python3 -m http.server 8000
 5. Open that URL on your phone, allow **Location** and **Notifications**, tap
    **Start alerts**. Use your browser's **Add to Home Screen** to install it.
 
+## Native Android app (background + boot)
+
+The PWA can't record in the background or start at boot. A **Capacitor** wrapper
+(same `docs/` code) turns it into an installable Android app with a
+foreground-service location stream — so recording/alerts keep running with the
+screen off — plus a boot receiver to relaunch after restart. Build + install it
+on a PC with the phone attached:
+
+```bash
+npm install && npx cap sync android && npx cap run android
+```
+
+Full prerequisites, permission setup, "run at startup" caveats, and
+troubleshooting are in **[NATIVE.md](NATIVE.md)**.
+
 ## Data sources (all free / keyless)
 
 | Layer / feature | Source | Notes |

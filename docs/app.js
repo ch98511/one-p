@@ -26,6 +26,7 @@
     rememberPin: false,   // persist the backup PIN on this device (less safe)
     backupPin: "",        // only used when rememberPin is true
     autoBackup: false,    // download an encrypted backup when a track is stopped
+    autoResume: false,    // (native) start recording automatically when the app opens
   };
   const load = () => {
     try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem("fcr.settings") || "{}") }; }
@@ -259,13 +260,22 @@ out body;`;
       map.setView(ll, 15);
     } else { userMarker.setLatLng(ll); accCircle.setLatLng(ll).setRadius(pos.acc || 20); }
   }
-  // A single watchPosition powers both alerts and recording.
+  // A single position watch powers both alerts and recording. Under Capacitor it
+  // runs as a background foreground-service stream (FCR.NativeGeo); on the web it
+  // is navigator.geolocation.
   function ensureGeoWatch() {
+    if (FCR.NativeGeo) {
+      if (!FCR.NativeGeo.active()) FCR.NativeGeo.start(onPos, onGeoErr);
+      watchId = "native";
+      return;
+    }
     if (watchId != null || !("geolocation" in navigator)) return;
     watchId = navigator.geolocation.watchPosition(onPos, onGeoErr, { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 });
   }
   function stopGeoWatchIfIdle() {
-    if (!monitoring && !recording && watchId != null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
+    if (monitoring || recording) return;
+    if (FCR.NativeGeo) { FCR.NativeGeo.stop(); watchId = null; return; }
+    if (watchId != null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
   }
   function onPos(p) {
     pos = { lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy, spd: p.coords.speed, alt: p.coords.altitude };
@@ -698,6 +708,13 @@ out body;`;
     $("rememberPin").onchange = (e) => { settings.rememberPin = e.target.checked; settings.backupPin = e.target.checked ? ($("backupPin").value || "") : ""; save(); };
     $("autoBackup").checked = settings.autoBackup;
     $("autoBackup").onchange = (e) => { settings.autoBackup = e.target.checked; save(); };
+    // Auto-resume is only meaningful in the native app (boot / app launch).
+    const arRow = $("autoResumeRow");
+    if (FCR.env && FCR.env.native) {
+      if (arRow) arRow.hidden = false;
+      $("autoResume").checked = settings.autoResume;
+      $("autoResume").onchange = (e) => { settings.autoResume = e.target.checked; save(); };
+    } else if (arRow) { arRow.hidden = true; }
 
     // Sheet close buttons + backdrop
     document.querySelectorAll("[data-close]").forEach((b) => (b.onclick = closeSheets));
@@ -787,7 +804,14 @@ out body;`;
     useMyLocationAsStart();
     renderTrackList().catch((e) => console.warn("tracks", e));
 
-    if ("serviceWorker" in navigator) {
+    // Native app launched (e.g. at boot) with auto-resume on → start recording.
+    if (FCR.env && FCR.env.native && settings.autoResume) {
+      setTimeout(() => { if (!recording) startRecording(); }, 800);
+    }
+
+    // A service worker inside the native app would serve a stale shell after
+    // `cap sync`, so only register it on the web.
+    if ("serviceWorker" in navigator && !(FCR.env && FCR.env.native)) {
       navigator.serviceWorker.register("./sw.js").then((reg) => { swReg = reg; }).catch((e) => console.warn("SW", e));
     }
   }

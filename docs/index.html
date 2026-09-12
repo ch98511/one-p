@@ -169,6 +169,7 @@
         <input id="backupPin" type="password" inputmode="numeric" autocomplete="off" placeholder="e.g. your phone unlock PIN" /></label>
       <label class="chk"><input id="rememberPin" type="checkbox" /><span>Remember PIN on this device <b class="muted">(less safe)</b></span></label>
       <label class="chk"><input id="autoBackup" type="checkbox" /><span>Auto-download an encrypted backup when I stop a track</span></label>
+      <label class="chk" id="autoResumeRow" hidden><input id="autoResume" type="checkbox" /><span>Start recording automatically when the app opens <b class="muted">(native app; enables record-after-boot)</b></span></label>
       <div class="btn-row">
         <button id="backupAllBtn" class="btn btn--sm">⬇︎ Back up all</button>
         <button id="restoreBtn" class="btn btn--sm">⬆︎ Restore from backup</button>
@@ -213,6 +214,7 @@
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
   <script src="./vendor/zip.min.js"></script>
+  <script src="./native.js"></script>
   <script src="./routing.js"></script>
   <script src="./layers.js"></script>
   <script src="./tracks.js"></script>
