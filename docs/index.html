@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <meta name="theme-color" content="#0f172a" />
   <title>Flock Camera Radar</title>
   <link rel="manifest" href="./manifest.webmanifest" />
@@ -11,90 +11,169 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Cam Radar" />
 
-  <!-- Leaflet map (loaded from CDN; map is optional and degrades gracefully) -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
-  <div id="app">
-    <header class="topbar">
-      <div class="brand">
-        <span class="dot"></span>
-        <span>Flock Camera Radar</span>
-      </div>
-      <button id="settingsBtn" class="icon-btn" aria-label="Settings">⚙</button>
-    </header>
+  <!-- Full-screen map base -->
+  <div id="map" aria-label="Map"></div>
 
-    <!-- Big status / alert banner -->
-    <section id="statusCard" class="status status--idle" aria-live="polite">
-      <div class="status__distance"><span id="nearestDist">—</span></div>
-      <div class="status__label" id="statusLabel">Not monitoring</div>
-      <div class="status__sub" id="statusSub">Press Start to use your location and watch for cameras nearby.</div>
-    </section>
+  <!-- Top floating search bar -->
+  <div class="topbar">
+    <form id="searchForm" class="search" autocomplete="off">
+      <span class="search__icon">🔎</span>
+      <input id="searchInput" type="text" placeholder="Search a destination…" aria-label="Search destination" />
+    </form>
+    <button id="settingsBtn" class="icon-btn" aria-label="Settings">⚙</button>
+  </div>
+  <ul id="searchResults" class="search-results" hidden></ul>
 
-    <div id="map" aria-label="Map of nearby cameras"></div>
+  <!-- Radar timestamp chip -->
+  <div id="radarChip" class="chip" hidden></div>
 
-    <section class="stats">
-      <div class="stat"><div class="stat__num" id="camCount">0</div><div class="stat__cap">cameras nearby</div></div>
-      <div class="stat"><div class="stat__num" id="gpsAcc">—</div><div class="stat__cap">GPS ± m</div></div>
-      <div class="stat"><div class="stat__num" id="alertR">150</div><div class="stat__cap">alert @ m</div></div>
-    </section>
+  <!-- Proximity alert banner (shown while monitoring) -->
+  <section id="statusCard" class="status status--idle" aria-live="polite" hidden>
+    <div class="status__distance"><span id="nearestDist">—</span></div>
+    <div class="status__label" id="statusLabel">Locating</div>
+    <div class="status__sub" id="statusSub">Getting your position…</div>
+  </section>
 
-    <ul id="camList" class="cam-list" aria-label="Nearby cameras list"></ul>
-
-    <div class="controls">
-      <button id="startBtn" class="btn btn--primary">▶ Start monitoring</button>
-      <button id="stopBtn" class="btn btn--ghost" hidden>■ Stop</button>
-      <button id="testBtn" class="btn btn--ghost">Test alert</button>
+  <!-- Map-tap hint (set start/dest, add waypoint, draw area) -->
+  <div id="mapHint" class="map-hint" hidden>
+    <span id="mapHintText"></span>
+    <div class="map-hint__btns">
+      <button id="hintFinish" class="btn btn--sm btn--primary" hidden>Finish</button>
+      <button id="hintCancel" class="btn btn--sm">Cancel</button>
     </div>
-
-    <p class="disclaimer">
-      Camera locations are crowd-sourced from <a href="https://www.openstreetmap.org" target="_blank" rel="noopener">OpenStreetMap</a>
-      (the DeFlock dataset) and may be incomplete or out of date. For privacy awareness only.
-      <strong>Don’t use while driving distracted.</strong>
-    </p>
   </div>
 
-  <!-- Settings sheet -->
+  <!-- Bottom dock -->
+  <nav class="dock">
+    <button id="dockRoute" class="dock__btn">🧭<span>Route</span></button>
+    <button id="dockLayers" class="dock__btn">🗂<span>Layers</span></button>
+    <button id="monitorBtn" class="dock__btn dock__btn--go">▶ Start alerts</button>
+  </nav>
+
+  <!-- Toast -->
+  <div id="toast" class="toast" hidden></div>
+
+  <!-- ============ Route sheet ============ -->
+  <div id="routeSheet" class="sheet" hidden>
+    <div class="sheet__panel">
+      <div class="sheet__head"><h2>Route</h2><button class="icon-btn" data-close aria-label="Close">✕</button></div>
+
+      <div class="row">
+        <div class="row__label">Start</div>
+        <div class="row__value" id="startLabel">My location</div>
+      </div>
+      <div class="btn-row">
+        <button id="useMyLoc" class="btn btn--sm">Use my location</button>
+        <button id="tapStart" class="btn btn--sm">Tap map</button>
+      </div>
+
+      <div class="row">
+        <div class="row__label">Destination</div>
+        <div class="row__value" id="destLabel">— search above or tap the map —</div>
+      </div>
+      <div class="btn-row">
+        <button id="tapDest" class="btn btn--sm">Set by tapping map</button>
+      </div>
+
+      <div class="row__label" style="margin-top:14px">Travel mode</div>
+      <div class="segmented">
+        <button data-mode="auto" class="on">🚗 Drive</button>
+        <button data-mode="bicycle">🚲 Bike</button>
+        <button data-mode="pedestrian">🚶 Walk</button>
+      </div>
+
+      <div class="row__label" style="margin-top:14px">Route filters</div>
+      <label class="chk"><input id="avoidCameras" type="checkbox" /><span>🚫 Avoid ALPR / Flock cameras</span></label>
+      <label class="chk"><input id="avoidTolls" type="checkbox" /><span>🚫 Avoid toll roads</span></label>
+      <label class="chk"><input id="avoidHighways" type="checkbox" /><span>🚫 Avoid highways</span></label>
+      <label class="chk"><input id="avoidFerries" type="checkbox" /><span>🚫 Avoid ferries</span></label>
+
+      <div class="row__label" style="margin-top:14px">Avoid areas <span class="pill" id="areaCount">0</span></div>
+      <div class="btn-row">
+        <button id="drawAreaBtn" class="btn btn--sm">✏️ Draw area on map</button>
+        <button id="clearAreasBtn" class="btn btn--sm">Clear areas</button>
+      </div>
+
+      <div class="row__label" style="margin-top:14px">Must-pass waypoints <span class="pill" id="wpCount">0</span></div>
+      <div class="btn-row">
+        <button id="addWaypointBtn" class="btn btn--sm">📍 Add by tapping map</button>
+        <button id="clearWaypointsBtn" class="btn btn--sm">Clear</button>
+      </div>
+
+      <button id="calcRouteBtn" class="btn btn--primary" style="margin-top:16px">Calculate route</button>
+
+      <div id="routeSummary" class="route-summary" hidden></div>
+      <div class="btn-row" style="margin-top:8px">
+        <button id="toggleDirections" class="btn btn--sm" hidden>Show / hide directions</button>
+        <button id="clearRouteBtn" class="btn btn--sm" hidden>Clear route</button>
+      </div>
+      <ol id="directionsList" class="directions" hidden></ol>
+    </div>
+  </div>
+
+  <!-- ============ Layers sheet ============ -->
+  <div id="layersSheet" class="sheet" hidden>
+    <div class="sheet__panel">
+      <div class="sheet__head"><h2>Map layers</h2><button class="icon-btn" data-close aria-label="Close">✕</button></div>
+
+      <label class="chk chk--count"><input id="layerFlock" type="checkbox" checked /><span>🔵 Flock cameras</span><b id="cntFlock">0</b></label>
+      <label class="chk chk--count"><input id="layerAlpr" type="checkbox" checked /><span>🟠 ALPR cameras</span><b id="cntAlpr">0</b></label>
+      <label class="chk chk--count"><input id="layerCctv" type="checkbox" /><span>🔴 Other surveillance</span><b id="cntCctv">0</b></label>
+
+      <label class="chk"><input id="includeAllSurv" type="checkbox" /><span>Fetch <b>all</b> public surveillance cameras (heavier — off by default)</span></label>
+
+      <div class="row__label" style="margin-top:16px">🌧 Weather radar</div>
+      <div id="radarRow" class="radar-row">
+        <label class="chk"><input id="radarOn" type="checkbox" /><span>Show radar</span></label>
+        <div class="btn-row">
+          <button id="radarPlay" class="btn btn--sm">▶ Play</button>
+          <button id="radarRefresh" class="btn btn--sm">↻ Refresh</button>
+          <span class="chip chip--inline" id="radarTime">—</span>
+        </div>
+        <label class="field"><span>Opacity</span><input id="radarOpacity" type="range" min="0.2" max="1" step="0.1" value="0.7" /></label>
+      </div>
+
+      <p class="muted" style="margin-top:14px">Switch the base map (Dark / Streets / Satellite) with the layers button on the top-right of the map.</p>
+    </div>
+  </div>
+
+  <!-- ============ Settings sheet ============ -->
   <div id="settingsSheet" class="sheet" hidden>
     <div class="sheet__panel">
-      <h2>Settings</h2>
+      <div class="sheet__head"><h2>Settings</h2><button class="icon-btn" data-close aria-label="Close">✕</button></div>
 
-      <label class="field">
-        <span>Alert distance: <b id="alertRLabel">150</b> m</span>
-        <input id="alertRRange" type="range" min="30" max="600" step="10" value="150" />
-      </label>
+      <label class="field"><span>Alert distance: <b id="alertRLabel">150</b> m</span>
+        <input id="alertRRange" type="range" min="30" max="600" step="10" value="150" /></label>
 
-      <label class="field">
-        <span>Search radius (how far to fetch cameras): <b id="fetchRLabel">3</b> km</span>
-        <input id="fetchRRange" type="range" min="1" max="15" step="1" value="3" />
-      </label>
+      <label class="field"><span>Camera search radius: <b id="fetchRLabel">3</b> km</span>
+        <input id="fetchRRange" type="range" min="1" max="15" step="1" value="3" /></label>
 
-      <label class="field field--row">
-        <input id="flockOnly" type="checkbox" />
-        <span>Only cameras tagged as <b>Flock</b> (otherwise show all ALPR cameras)</span>
-      </label>
+      <label class="chk"><input id="soundOn" type="checkbox" checked /><span>Play a sound on alert</span></label>
+      <label class="chk"><input id="vibrateOn" type="checkbox" checked /><span>Vibrate on alert</span></label>
+      <label class="chk"><input id="wakeOn" type="checkbox" checked /><span>Keep screen awake while monitoring</span></label>
 
-      <label class="field field--row">
-        <input id="soundOn" type="checkbox" checked />
-        <span>Play a sound on alert</span>
-      </label>
+      <div class="row__label" style="margin-top:16px">Routing engine</div>
+      <label class="field"><span>Valhalla endpoint (blank = public demo)</span>
+        <input id="routeEndpoint" type="url" placeholder="https://valhalla1.openstreetmap.de" /></label>
+      <div class="btn-row"><button id="resetEndpoint" class="btn btn--sm">Reset to default</button>
+        <button id="testBtn" class="btn btn--sm">Test alert</button></div>
 
-      <label class="field field--row">
-        <input id="vibrateOn" type="checkbox" checked />
-        <span>Vibrate on alert</span>
-      </label>
-
-      <label class="field field--row">
-        <input id="wakeOn" type="checkbox" checked />
-        <span>Keep screen awake while monitoring</span>
-      </label>
-
-      <button id="closeSettings" class="btn btn--primary">Done</button>
+      <p class="muted" style="margin-top:14px">
+        Cameras: <a href="https://www.openstreetmap.org" target="_blank" rel="noopener">OpenStreetMap</a> (DeFlock). Radar:
+        <a href="https://www.rainviewer.com" target="_blank" rel="noopener">RainViewer</a>. Routing:
+        <a href="https://valhalla.github.io/valhalla/" target="_blank" rel="noopener">Valhalla</a>.
+        Crowd-sourced data may be incomplete. <strong>Don't use while driving distracted.</strong>
+      </p>
     </div>
   </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="./routing.js"></script>
+  <script src="./layers.js"></script>
   <script src="./app.js"></script>
 </body>
 </html>

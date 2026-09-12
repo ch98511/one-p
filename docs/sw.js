@@ -1,11 +1,13 @@
 /* Service worker: caches the app shell so it launches offline,
  * and lets alerts show as system notifications. */
-const CACHE = "fcr-v1";
+const CACHE = "fcr-v2";
 const SHELL = [
   "./",
   "./index.html",
   "./styles.css",
   "./app.js",
+  "./routing.js",
+  "./layers.js",
   "./manifest.webmanifest",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
