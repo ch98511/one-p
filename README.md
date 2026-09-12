@@ -27,6 +27,10 @@ destination geocode, and a route request. No account, no tracking. It's for
   - 📍 **Must-pass waypoints**
   - 🚗🚲🚶 Drive / bike / walk
   - turn-by-turn directions, distance & time — via **Valhalla**
+- ⏺️ **Record your tracks** — start/pause/stop, live distance/time, saved on-device
+  (IndexedDB), viewable on the map, exportable as GPX
+- 🔐 **Encrypted backups** — export tracks as an **AES-256 password-protected ZIP**
+  (openable in 7-Zip / Keka / WinZip); restore them with the same PIN
 - 📶 Installs to your home screen and launches offline (last-seen cameras cached)
 
 > **How routing constraints work:** each control becomes a field in a real
@@ -105,12 +109,25 @@ on-device on every GPS update; it re-fetches when you move far enough.
 docs/
   index.html            map-first UI (search, dock, sheets)
   styles.css            styles
-  app.js                orchestration: map, cameras, alerts, GPS, route UI
+  app.js                orchestration: map, cameras, alerts, GPS, route + tracks UI
   routing.js            geocoding + constraint-aware routing (Valhalla)
   layers.js             map base + weather radar + layer control
+  tracks.js             track recording storage (IndexedDB) + encrypted-zip backup
+  vendor/zip.min.js     zip.js (AES-256 encrypted ZIP) — vendored, offline-capable
   sw.js                 service worker (offline shell + notifications)
   manifest.webmanifest  PWA install metadata
   icons/                app icons
-  ARCHITECTURE.md       policy→engine mapping + production backend plan
+  ARCHITECTURE.md       policy→engine mapping, tracks/backup, always-on, backend plan
+backend/                self-hosted Valhalla + PostGIS + camera import (docker)
 tools/make-icons.mjs    regenerates the PNG icons
 ```
+
+### Recording, background & backups — what's real
+
+- Recording and alerts run **while the app is open** (screen kept awake) and
+  resume when you reopen it. A web app **can't** record in the background or
+  launch at phone startup — that needs a native wrapper (Capacitor). The path is
+  in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §8 (Always-on).
+- The backup PIN is **not** your device unlock PIN (browsers can't read that) —
+  it's a passphrase you set in the app; you can reuse your phone's digits. Lose
+  it and the encrypted backup can't be recovered.

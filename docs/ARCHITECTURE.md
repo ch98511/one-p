@@ -253,16 +253,66 @@ Valhalla or GraphHopper rather than iterating edges yourself.)
 └──────────────────────────┘
 ```
 
-The MVP already implements the Map, Route, Layers, and Settings screens. Saved
-filters and history land when the backend (§4–5) exists.
+The MVP already implements the Map, Route, Layers, **Tracks**, and Settings
+screens. Saved filters and history land when the backend (§4–5) exists.
 
 ---
 
-## 7. Suggested build order
+## 7. Track recording & encrypted backups
+
+Implemented in the PWA (`tracks.js`):
+
+- **Recording** shares one `watchPosition` with the alert monitor, so alerts and
+  recording can run together on a single GPS stream. Points
+  (`{t, lat, lon, acc, spd, alt}`) are appended with light stationary-noise
+  filtering and drawn live on the map.
+- **Storage** is IndexedDB (`fcr.tracks`) — long point arrays outgrow
+  localStorage. Tracks never leave the device until you export.
+- **Backup** packs each track as GPX (interoperable) + JSON (full fidelity) into
+  a **password-protected AES-256 ZIP** (WinZip AES via `zip.js`), openable in
+  7-Zip / Keka / WinZip. Restore reads the JSON entries back into IndexedDB.
+- **The PIN**: a browser **cannot read the device unlock PIN** (no API exposes
+  it), so the app takes a passphrase you type — you may reuse your phone PIN. It
+  is kept in memory by default; "remember on this device" persists it to
+  localStorage (weaker). Key derivation + AES are handled by the zip AES format.
+
+Server-side backup (optional, later): add `POST /v1/tracks` to the API (§5) so
+the encrypted blobs — or the GPX — can sync to your own storage; the client
+would upload the same AES zip, or the server would re-encrypt at rest.
+
+---
+
+## 8. Always-on alerts + track recording (native)
+
+**A PWA cannot do this**, and it's the honest limit of the current build:
+browsers suspend a web app when it's backgrounded and never launch it at device
+boot. So both alert monitoring and track recording only run while the app is
+open (the app keeps the screen awake to help). True always-on needs a thin
+native shell reusing this same code:
+
+- **Capacitor** wraps the existing PWA as an Android/iOS app with near-zero code
+  changes. Add:
+  - **`@capacitor/background-geolocation`** (or `@transistorsoft/…`) for a
+    persistent location stream that survives backgrounding.
+  - **Android foreground service** (a sticky notification) so the OS won't kill
+    recording/alerts; **`RECEIVE_BOOT_COMPLETED`** + a `BootReceiver` to
+    auto-start at phone boot.
+  - **Local notifications** for camera alerts fired from the background service.
+- **iOS reality**: background location is allowed with the *Always* permission
+  and a visible blue status bar, but iOS still can't truly auto-start an app at
+  boot — the user must open it once per boot. Android (foreground service +
+  boot receiver) is where full "wake and run at startup" works.
+
+The routing, camera, alert, and track logic stay in the shared JS; only the
+background/boot plumbing is native.
+
+---
+
+## 9. Suggested build order
 
 1. **Ship the PWA** (done) — validate UX with real public data.
-2. **Self-host Valhalla** (§3) — remove the public rate limit; paste URL in Settings.
-3. **Stand up PostGIS + a thin API** (§4–5) — persist filters, serve camera bbox.
+2. **Self-host Valhalla** (§3, `backend/`) — remove the public rate limit; paste URL in Settings.
+3. **Stand up PostGIS + a thin API** (§4–5) — persist filters, serve camera bbox, optional track sync.
 4. **Move the rule engine server-side** — enable prefer/conditional rules.
-5. **Native shell** (Capacitor over this PWA, or React Native + Mapbox) — for
-   reliable background alerts.
+5. **Native shell** (Capacitor over this PWA, §8) — background alerts, background
+   track recording, and boot autostart (Android).

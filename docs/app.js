@@ -23,6 +23,9 @@
     layerFlock: true, layerAlpr: true, layerCctv: false,
     sound: true, vibrate: true, wake: true,
     routeEndpoint: "",    // blank = default public Valhalla
+    rememberPin: false,   // persist the backup PIN on this device (less safe)
+    backupPin: "",        // only used when rememberPin is true
+    autoBackup: false,    // download an encrypted backup when a track is stopped
   };
   const load = () => {
     try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem("fcr.settings") || "{}") }; }
@@ -36,15 +39,22 @@
   // ---------- State ----------
   let map = null, layersApi = null, radar = null;
   let watchId = null, pos = null, swReg = null, audioCtx = null, wakeLock = null;
+  let monitoring = false;         // alerts on (shares the geolocation watch)
 
   let cameras = [];               // normalized [{id,lat,lon,category,name,type}]
   let lastFetchCenter = null, lastFetchAt = 0, fetching = false;
   const alerted = new Map();      // cameraId -> lastAlertTime
 
+  // Track recording
+  let recording = false, paused = false;
+  let currentTrack = null, trackLine = null, recTimer = null;
+  let backupPin = "";             // in-memory unless "remember" is on
+
   // Map layers
   let gFlock, gAlpr, gCctv;       // camera groups
   let userMarker = null, accCircle = null;
   let routeGroup, avoidGroup;     // route + avoid-area drawing
+  let trackGroup, savedTrackGroup;// live recording line + saved-track viewer
 
   // Routing model
   const R = {
@@ -193,7 +203,7 @@ out body;`;
   const setSub = (s) => { $("statusSub").textContent = s; };
 
   function evaluate() {
-    if (!pos || watchId == null) return;
+    if (!pos || !monitoring) return;
     const list = alertable()
       .map((c) => ({ ...c, d: distance(pos.lat, pos.lon, c.lat, c.lon), b: bearing(pos.lat, pos.lon, c.lat, c.lon) }))
       .sort((a, b) => a.d - b.d);
@@ -239,7 +249,7 @@ out body;`;
     } catch (e) { console.warn("beep failed", e); }
   }
 
-  // ---------- Geolocation / monitoring ----------
+  // ---------- Geolocation (shared by alerts + recording) ----------
   function updateUserOnMap() {
     if (!map || !pos) return;
     const ll = [pos.lat, pos.lon];
@@ -249,19 +259,45 @@ out body;`;
       map.setView(ll, 15);
     } else { userMarker.setLatLng(ll); accCircle.setLatLng(ll).setRadius(pos.acc || 20); }
   }
+  // A single watchPosition powers both alerts and recording.
+  function ensureGeoWatch() {
+    if (watchId != null || !("geolocation" in navigator)) return;
+    watchId = navigator.geolocation.watchPosition(onPos, onGeoErr, { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 });
+  }
+  function stopGeoWatchIfIdle() {
+    if (!monitoring && !recording && watchId != null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
+  }
+  function onPos(p) {
+    pos = { lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy, spd: p.coords.speed, alt: p.coords.altitude };
+    updateUserOnMap();
+    if (recording) recordPoint();
+    if (monitoring) {
+      const moved = lastFetchCenter ? distance(pos.lat, pos.lon, lastFetchCenter.lat, lastFetchCenter.lon) : Infinity;
+      const stale = Date.now() - lastFetchAt > 120000;
+      if (moved > settings.fetchKm * 400 || (stale && moved > 200)) fetchCameras(pos.lat, pos.lon);
+      renderCameras();
+    }
+  }
+  function onGeoErr(err) {
+    console.warn("geo error", err);
+    const msg = err.code === 1 ? "Location permission denied. Enable it in your browser settings."
+      : err.code === 2 ? "Position unavailable — check GPS / signal." : "Locating timed out — retrying.";
+    if (monitoring) setStatus("idle", "—", "GPS problem", msg); else toast(msg);
+  }
+
+  // ---------- Alerts monitoring ----------
   async function startMonitoring() {
-    if (!("geolocation" in navigator)) { setSub("This device has no geolocation."); return; }
+    if (!("geolocation" in navigator)) { toast("This device has no geolocation."); return; }
     await requestNotifications();
     if (settings.sound) { try { audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)(); audioCtx.resume(); } catch {} }
-    acquireWakeLock();
+    monitoring = true; acquireWakeLock(); ensureGeoWatch();
     $("statusCard").hidden = false;
     setMonitorUI(true);
     setStatus("ok", "…", "Locating", "Getting your GPS position…");
-    watchId = navigator.geolocation.watchPosition(onPos, onGeoErr, { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 });
   }
   function stopMonitoring() {
-    if (watchId != null) navigator.geolocation.clearWatch(watchId);
-    watchId = null; releaseWakeLock(); setMonitorUI(false);
+    monitoring = false; stopGeoWatchIfIdle(); if (!recording) releaseWakeLock();
+    setMonitorUI(false);
     setStatus("idle", "—", "Alerts off", "Monitoring paused.");
     $("statusCard").hidden = true;
   }
@@ -269,20 +305,75 @@ out body;`;
     $("monitorBtn").classList.toggle("on", on);
     $("monitorBtn").textContent = on ? "■ Stop alerts" : "▶ Start alerts";
   }
-  function onPos(p) {
-    pos = { lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy };
-    updateUserOnMap();
-    const moved = lastFetchCenter ? distance(pos.lat, pos.lon, lastFetchCenter.lat, lastFetchCenter.lon) : Infinity;
-    const stale = Date.now() - lastFetchAt > 120000;
-    if (moved > settings.fetchKm * 400 || (stale && moved > 200)) fetchCameras(pos.lat, pos.lon);
-    renderCameras();
+
+  // ---------- Track recording ----------
+  function startRecording() {
+    if (recording) return;
+    if (!("geolocation" in navigator)) { toast("This device has no geolocation."); return; }
+    recording = true; paused = false;
+    currentTrack = FCR.Tracks.newTrack();
+    trackLine = L.polyline([], { color: "#22c55e", weight: 5, opacity: 0.9 }).addTo(trackGroup);
+    acquireWakeLock(); ensureGeoWatch();
+    if (pos) recordPoint();               // seed with current fix if we have one
+    recTimer = setInterval(updateRecStats, 1000);
+    setRecUI(true);
+    $("recChip").hidden = false;
+    toast("Recording your track. It keeps going while the app is open.");
   }
-  function onGeoErr(err) {
-    console.warn("geo error", err);
-    const msg = err.code === 1 ? "Location permission denied. Enable it in your browser settings."
-      : err.code === 2 ? "Position unavailable — check GPS / signal." : "Locating timed out — retrying.";
-    setStatus("idle", "—", "GPS problem", msg);
+  async function stopRecording() {
+    if (!recording) return;
+    recording = false; paused = false;
+    if (recTimer) { clearInterval(recTimer); recTimer = null; }
+    stopGeoWatchIfIdle(); if (!monitoring) releaseWakeLock();
+    setRecUI(false); $("recChip").hidden = true;
+    const t = currentTrack; currentTrack = null;
+    if (trackLine) { trackGroup.removeLayer(trackLine); trackLine = null; }
+    if (!t || t.points.length < 2) { toast("Track discarded — too few points."); return; }
+    FCR.Tracks.finalize(t);
+    await FCR.Tracks.save(t);
+    await renderTrackList();
+    toast(`Saved: ${fmtKm(t.distanceM / 1000)} in ${fmtDur(t.durationS)}.`);
+    if (settings.autoBackup) { const pin = getPin(); if (pin) backupAll(); else toast("Set a backup PIN to auto-back-up."); }
   }
+  function togglePauseRecording() {
+    if (!recording) return;
+    paused = !paused;
+    $("pauseBtn").textContent = paused ? "▶ Resume" : "⏸ Pause";
+    $("recChip").classList.toggle("paused", paused);
+  }
+  function recordPoint() {
+    if (!recording || paused || !pos || !currentTrack) return;
+    const pts = currentTrack.points;
+    const pt = { t: Date.now(), lat: pos.lat, lon: pos.lon, acc: pos.acc, spd: pos.spd, alt: pos.alt };
+    const last = pts[pts.length - 1];
+    // Skip near-duplicate fixes while stationary to keep the track clean.
+    if (last && FCR.Tracks.distance(last, pt) < 2 && pt.t - last.t < 10000) return;
+    pts.push(pt);
+    if (trackLine) trackLine.setLatLngs(pts.map((p) => [p.lat, p.lon]));
+    updateRecStats();
+  }
+  function updateRecStats() {
+    if (!currentTrack) return;
+    const pts = currentTrack.points;
+    const dist = FCR.Tracks.trackDistance(pts);
+    const dur = Math.round((Date.now() - currentTrack.startedAt) / 1000);
+    $("recDist").textContent = fmtKm(dist / 1000);
+    $("recDur").textContent = fmtDur(dur);
+    $("recPts").textContent = pts.length;
+    $("recChipTime").textContent = fmtDur(dur);
+  }
+  function setRecUI(on) {
+    $("recordBtn").classList.toggle("on", on);
+    $("recordBtn").textContent = on ? "■ Stop recording" : "⏺ Record my track";
+    $("pauseBtn").hidden = !on;
+    $("pauseBtn").textContent = "⏸ Pause";
+    $("recLive").hidden = !on;
+  }
+  const fmtDur = (s) => {
+    s = Math.max(0, Math.round(s));
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+    return (h ? h + ":" + String(m).padStart(2, "0") : m) + ":" + String(sec).padStart(2, "0") + (h ? "" : "");
+  };
   // One-shot position (for routing when not actively monitoring).
   function getPositionOnce() {
     return new Promise((resolve, reject) => {
@@ -303,7 +394,7 @@ out body;`;
     try { wakeLock = await navigator.wakeLock.request("screen"); } catch (e) { console.warn("wakeLock", e); }
   }
   function releaseWakeLock() { try { wakeLock && wakeLock.release(); } catch {} wakeLock = null; }
-  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && watchId != null) acquireWakeLock(); });
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && (monitoring || recording)) acquireWakeLock(); });
 
   // ---------- Search / geocoding ----------
   async function doSearch(q) {
@@ -479,6 +570,84 @@ out body;`;
   function finishDraw() { endDraw(true); setTapMode(null); }
   function clearAreas() { R.areas.forEach((a) => avoidGroup.removeLayer(a.layer)); R.areas = []; $("areaCount").textContent = 0; }
 
+  // ---------- Tracks: list, view, backup, restore ----------
+  function getPin() {
+    const field = $("backupPin");
+    return ((field && field.value) || backupPin || "").trim();
+  }
+  async function renderTrackList() {
+    const ul = $("trackList");
+    const tracks = await FCR.Tracks.list();
+    $("trackCount").textContent = tracks.length;
+    ul.innerHTML = "";
+    if (!tracks.length) { ul.innerHTML = "<li class='muted'>No saved tracks yet. Tap “Record my track”.</li>"; return; }
+    for (const t of tracks) {
+      const li = document.createElement("li");
+      li.className = "track-item";
+      const when = new Date(t.startedAt).toLocaleString();
+      li.innerHTML =
+        `<div class="track-item__meta">
+           <div class="track-item__name">${escapeHtml(t.name)}</div>
+           <div class="muted track-item__sub">${when} · ${fmtKm((t.distanceM || 0) / 1000)} · ${fmtDur(t.durationS || 0)} · ${t.points.length} pts</div>
+         </div>
+         <div class="track-item__btns">
+           <button data-act="show" title="Show on map">🗺</button>
+           <button data-act="export" title="Export encrypted backup">⬇︎</button>
+           <button data-act="del" title="Delete">🗑</button>
+         </div>`;
+      li.querySelector('[data-act="show"]').onclick = () => showTrackOnMap(t.id);
+      li.querySelector('[data-act="export"]').onclick = () => backupTracks([t]);
+      li.querySelector('[data-act="del"]').onclick = () => deleteTrack(t.id);
+      ul.appendChild(li);
+    }
+  }
+  async function showTrackOnMap(id) {
+    const t = await FCR.Tracks.get(id);
+    if (!t || !t.points.length) return;
+    savedTrackGroup.clearLayers();
+    const latlngs = t.points.map((p) => [p.lat, p.lon]);
+    const line = L.polyline(latlngs, { color: "#f59e0b", weight: 5, opacity: 0.95 }).addTo(savedTrackGroup);
+    L.circleMarker(latlngs[0], { radius: 6, color: "#22c55e", fillColor: "#22c55e", fillOpacity: 1 }).bindTooltip("Start").addTo(savedTrackGroup);
+    L.circleMarker(latlngs[latlngs.length - 1], { radius: 6, color: "#ef4444", fillColor: "#ef4444", fillOpacity: 1 }).bindTooltip("End").addTo(savedTrackGroup);
+    try { map.fitBounds(line.getBounds().pad(0.2)); } catch {}
+    closeSheets();
+  }
+  async function deleteTrack(id) {
+    if (!confirm("Delete this track? This can't be undone.")) return;
+    await FCR.Tracks.remove(id);
+    await renderTrackList();
+  }
+  async function backupAll() {
+    const tracks = await FCR.Tracks.list();
+    if (!tracks.length) { toast("No tracks to back up yet."); return; }
+    await backupTracks(tracks);
+  }
+  async function backupTracks(tracks) {
+    const pin = getPin();
+    if (!pin) { openSheet("tracksSheet"); $("backupPin").focus(); toast("Enter a backup PIN/passphrase first."); return; }
+    try {
+      toast("Encrypting backup…");
+      const blob = await FCR.Tracks.exportZip(tracks, pin);
+      downloadBlob(blob, `flock-tracks-${new Date().toISOString().slice(0, 10)}.zip`);
+      toast(`Backup ready (${tracks.length} track${tracks.length > 1 ? "s" : ""}) — AES-encrypted.`);
+    } catch (e) { console.warn(e); toast("Backup failed: " + e.message); }
+  }
+  function restoreFromFile(file) {
+    const pin = getPin();
+    if (!pin) { toast("Enter the backup PIN first, then choose the file."); return; }
+    toast("Decrypting backup…");
+    FCR.Tracks.importAndSave(file, pin)
+      .then(async (n) => { await renderTrackList(); toast(`Restored ${n} track${n === 1 ? "" : "s"}.`); })
+      .catch((e) => { console.warn(e); toast(e.message); });
+  }
+  function downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  }
+
   // ---------- Sheets / small UI ----------
   function openSheet(id) { closeSheets(); $(id).hidden = false; }
   function closeSheets() { document.querySelectorAll(".sheet").forEach((s) => (s.hidden = true)); }
@@ -512,8 +681,23 @@ out body;`;
     // Dock
     $("dockRoute").onclick = () => openSheet("routeSheet");
     $("dockLayers").onclick = () => { syncLayerChecks(); openSheet("layersSheet"); };
+    $("dockTracks").onclick = () => { renderTrackList(); openSheet("tracksSheet"); };
     $("settingsBtn").onclick = () => openSheet("settingsSheet");
-    $("monitorBtn").onclick = () => (watchId == null ? startMonitoring() : stopMonitoring());
+    $("monitorBtn").onclick = () => (monitoring ? stopMonitoring() : startMonitoring());
+
+    // Tracks sheet
+    $("recordBtn").onclick = () => (recording ? stopRecording() : startRecording());
+    $("pauseBtn").onclick = togglePauseRecording;
+    $("recChip").onclick = () => { renderTrackList(); openSheet("tracksSheet"); };
+    $("backupAllBtn").onclick = backupAll;
+    $("restoreBtn").onclick = () => $("restoreFile").click();
+    $("restoreFile").onchange = (e) => { const f = e.target.files[0]; if (f) restoreFromFile(f); e.target.value = ""; };
+    if (settings.rememberPin && settings.backupPin) { backupPin = settings.backupPin; $("backupPin").value = settings.backupPin; }
+    $("rememberPin").checked = settings.rememberPin;
+    $("backupPin").oninput = (e) => { backupPin = e.target.value; if (settings.rememberPin) { settings.backupPin = e.target.value; save(); } };
+    $("rememberPin").onchange = (e) => { settings.rememberPin = e.target.checked; settings.backupPin = e.target.checked ? ($("backupPin").value || "") : ""; save(); };
+    $("autoBackup").checked = settings.autoBackup;
+    $("autoBackup").onchange = (e) => { settings.autoBackup = e.target.checked; save(); };
 
     // Sheet close buttons + backdrop
     document.querySelectorAll("[data-close]").forEach((b) => (b.onclick = closeSheets));
@@ -565,7 +749,7 @@ out body;`;
     $("fetchRRange").onchange = () => { const c = pos || lastFetchCenter; if (c) fetchCameras(c.lat, c.lon); };
     $("soundOn").onchange = (e) => { settings.sound = e.target.checked; save(); };
     $("vibrateOn").onchange = (e) => { settings.vibrate = e.target.checked; save(); };
-    $("wakeOn").onchange = (e) => { settings.wake = e.target.checked; save(); if (settings.wake && watchId != null) acquireWakeLock(); else releaseWakeLock(); };
+    $("wakeOn").onchange = (e) => { settings.wake = e.target.checked; save(); if (settings.wake && (monitoring || recording)) acquireWakeLock(); else releaseWakeLock(); };
     $("routeEndpoint").onchange = (e) => { settings.routeEndpoint = e.target.value.trim(); save(); FCR.Routing.setEndpoint(settings.routeEndpoint); };
     $("resetEndpoint").onclick = () => { settings.routeEndpoint = ""; $("routeEndpoint").value = ""; save(); FCR.Routing.setEndpoint(""); };
     $("testBtn").onclick = () => { $("statusCard").hidden = false; fireAlert({ id: "test", d: 90, b: 45, name: "Test camera", category: "flock" }); };
@@ -586,6 +770,8 @@ out body;`;
     layersApi.addOverlay("🔴 Other surveillance", gCctv, settings.layerCctv);
     routeGroup = L.layerGroup().addTo(map);
     avoidGroup = L.layerGroup().addTo(map);
+    trackGroup = L.layerGroup().addTo(map);           // live recording line
+    savedTrackGroup = L.layerGroup().addTo(map);      // saved-track viewer
 
     map.on("click", onMapClick);
     map.on("overlayadd overlayremove", syncLayerChecks);
@@ -599,6 +785,7 @@ out body;`;
     loadCache();
     if (cameras.length) { renderCameras(); if (lastFetchCenter) map.setView([lastFetchCenter.lat, lastFetchCenter.lon], 13); }
     useMyLocationAsStart();
+    renderTrackList().catch((e) => console.warn("tracks", e));
 
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("./sw.js").then((reg) => { swReg = reg; }).catch((e) => console.warn("SW", e));

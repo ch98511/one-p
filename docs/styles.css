@@ -58,6 +58,36 @@ body {
 }
 .chip--inline { position: static; box-shadow: none; background: var(--panel-2); }
 
+/* ---------- Recording chip ---------- */
+.rec-chip {
+  position: fixed; top: calc(94px + var(--safe-top)); left: 12px; z-index: 720;
+  display: inline-flex; align-items: center; gap: 6px; border: 0;
+  background: rgba(185,28,28,.92); color: #fff; font-size: 12px; font-weight: 800;
+  padding: 6px 11px; border-radius: 999px; box-shadow: 0 4px 12px rgba(0,0,0,.5);
+  font-variant-numeric: tabular-nums;
+}
+.rec-dot { width: 9px; height: 9px; border-radius: 50%; background: #fff; animation: recblink 1s steps(2, start) infinite; }
+.rec-chip.paused { background: rgba(120,53,15,.92); }
+.rec-chip.paused .rec-dot { animation: none; opacity: .6; }
+@keyframes recblink { 0%,100% { opacity: 1; } 50% { opacity: .2; } }
+
+/* ---------- Tracks ---------- */
+.btn--rec { width: 100%; }
+.btn--rec.on { background: var(--red); color: #fff; }
+.rec-live { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+.rec-live .stat { background: var(--panel-2); border-radius: 12px; padding: 10px; text-align: center; }
+.rec-live .stat__num { font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.rec-live .stat__cap { color: var(--muted); font-size: 11px; margin-top: 2px; }
+.rec-note { margin-top: 10px; font-size: 12px; }
+.track-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.track-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--panel-2); border-radius: 12px; padding: 10px 12px; }
+.track-item__meta { min-width: 0; }
+.track-item__name { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.track-item__sub { font-size: 12px; }
+.track-item__btns { display: flex; gap: 4px; flex: none; }
+.track-item__btns button { border: 0; background: var(--panel); color: var(--text); width: 34px; height: 34px; border-radius: 9px; font-size: 15px; }
+.track-item__btns button:active { transform: translateY(1px); }
+
 /* ---------- Alert / status banner ---------- */
 .status {
   position: fixed; top: calc(60px + var(--safe-top)); left: 50%; transform: translateX(-50%);

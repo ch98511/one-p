@@ -31,6 +31,9 @@
   <!-- Radar timestamp chip -->
   <div id="radarChip" class="chip" hidden></div>
 
+  <!-- Recording indicator (tap to open Tracks) -->
+  <button id="recChip" class="rec-chip" hidden><span class="rec-dot"></span> REC <span id="recChipTime">0:00</span></button>
+
   <!-- Proximity alert banner (shown while monitoring) -->
   <section id="statusCard" class="status status--idle" aria-live="polite" hidden>
     <div class="status__distance"><span id="nearestDist">—</span></div>
@@ -51,6 +54,7 @@
   <nav class="dock">
     <button id="dockRoute" class="dock__btn">🧭<span>Route</span></button>
     <button id="dockLayers" class="dock__btn">🗂<span>Layers</span></button>
+    <button id="dockTracks" class="dock__btn">⏺<span>Tracks</span></button>
     <button id="monitorBtn" class="dock__btn dock__btn--go">▶ Start alerts</button>
   </nav>
 
@@ -141,6 +145,39 @@
     </div>
   </div>
 
+  <!-- ============ Tracks sheet ============ -->
+  <div id="tracksSheet" class="sheet" hidden>
+    <div class="sheet__panel">
+      <div class="sheet__head"><h2>Tracks</h2><button class="icon-btn" data-close aria-label="Close">✕</button></div>
+
+      <button id="recordBtn" class="btn btn--primary btn--rec">⏺ Record my track</button>
+      <button id="pauseBtn" class="btn btn--sm" hidden>⏸ Pause</button>
+
+      <div id="recLive" class="rec-live" hidden>
+        <div class="stat"><div class="stat__num" id="recDist">0 m</div><div class="stat__cap">distance</div></div>
+        <div class="stat"><div class="stat__num" id="recDur">0:00</div><div class="stat__cap">time</div></div>
+        <div class="stat"><div class="stat__num" id="recPts">0</div><div class="stat__cap">points</div></div>
+      </div>
+
+      <p class="muted rec-note">Recording runs while the app is open (screen kept awake) and resumes when you reopen it. A web app can't record in the background or start at phone boot — see <b>Always-on / boot</b> in Settings for the native option.</p>
+
+      <div class="row__label" style="margin-top:6px">Saved tracks <span class="pill" id="trackCount">0</span></div>
+      <ul id="trackList" class="track-list"></ul>
+
+      <div class="row__label" style="margin-top:16px">Encrypted backup</div>
+      <label class="field"><span>Backup PIN / passphrase (encrypts the .zip)</span>
+        <input id="backupPin" type="password" inputmode="numeric" autocomplete="off" placeholder="e.g. your phone unlock PIN" /></label>
+      <label class="chk"><input id="rememberPin" type="checkbox" /><span>Remember PIN on this device <b class="muted">(less safe)</b></span></label>
+      <label class="chk"><input id="autoBackup" type="checkbox" /><span>Auto-download an encrypted backup when I stop a track</span></label>
+      <div class="btn-row">
+        <button id="backupAllBtn" class="btn btn--sm">⬇︎ Back up all</button>
+        <button id="restoreBtn" class="btn btn--sm">⬆︎ Restore from backup</button>
+      </div>
+      <input id="restoreFile" type="file" accept=".zip,application/zip" hidden />
+      <p class="muted" style="margin-top:10px">Backups are AES-256 encrypted ZIP files (GPX + JSON inside), openable in 7-Zip / Keka / WinZip with this PIN. If you lose the PIN there is no recovery.</p>
+    </div>
+  </div>
+
   <!-- ============ Settings sheet ============ -->
   <div id="settingsSheet" class="sheet" hidden>
     <div class="sheet__panel">
@@ -162,6 +199,9 @@
       <div class="btn-row"><button id="resetEndpoint" class="btn btn--sm">Reset to default</button>
         <button id="testBtn" class="btn btn--sm">Test alert</button></div>
 
+      <div class="row__label" style="margin-top:16px">Always-on / boot</div>
+      <p class="muted">Alerts and track recording run only while this app is open (screen kept awake). Browsers can't launch a web app at phone startup or keep GPS running in the background. For always-on alerts and boot autostart, the app needs a native wrapper (Capacitor) reusing this same code — see <a href="./ARCHITECTURE.md" target="_blank" rel="noopener">ARCHITECTURE.md → Always-on</a>.</p>
+
       <p class="muted" style="margin-top:14px">
         Cameras: <a href="https://www.openstreetmap.org" target="_blank" rel="noopener">OpenStreetMap</a> (DeFlock). Radar:
         <a href="https://www.rainviewer.com" target="_blank" rel="noopener">RainViewer</a>. Routing:
@@ -172,8 +212,10 @@
   </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="./vendor/zip.min.js"></script>
   <script src="./routing.js"></script>
   <script src="./layers.js"></script>
+  <script src="./tracks.js"></script>
   <script src="./app.js"></script>
 </body>
 </html>
